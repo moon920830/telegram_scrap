@@ -1,3 +1,4 @@
+import re
 import asyncio
 from telethon import TelegramClient
 from telethon.errors.rpcerrorlist import PeerFloodError
@@ -53,17 +54,31 @@ async def scrape_messages(client):
                     break
 
                 for message in messages.messages:
+                    print(message)
                     text = message.message
+                    chat_id =  message.id
                     if text:
-                        f.write(text + '\n')
-                        message_count += 1
+                        # Extract the required fields using regular expressions
+                        contract_address = re.findall(r"0x[a-fA-F0-9]{40}", text)
+                        link_dextools = re.findall(r".*https://www\.dextools\.io.*", text)
+                        link_dexscreener = re.findall(r".*https://www\.dexscreener\.com.*", text)
+                        link_coinmarketcap = re.findall(r".*https://www\.coinmarketcap\.com.*", text)
+
+                        # Write the extracted fields to file only when any of the links exist
+                        if contract_address or link_dextools or link_dexscreener or link_coinmarketcap:
+                            f.write(f"Contract Address: {contract_address}\n")
+                            f.write(f"Dextools Link: {link_dextools}\n")
+                            f.write(f"Dexscreener Link: {link_dexscreener}\n")
+                            f.write(f"Coinmarketcap Link: {link_dexscreener}\n\n") 
+
+                            message_count += 1
 
                 iteration_count += 1
 
         print(f'Successfully scraped {message_count} messages '
               f'from entity "{entity.username or entity.phone}"'
               f'and wrote them to file')
-    # Add a KeyboardInterrupt exception handler here:
+
     except KeyboardInterrupt:
         await client.disconnect()
         print('\nProgram stopped by user.')
@@ -76,7 +91,7 @@ async def scrape_messages(client):
         return
 
     await client.disconnect()
-    print('Successfully logged {message_count} messages to telegram_log.txt')
+    print(f'Successfully logged {message_count} messages to output.txt')
 
 client = TelegramClient(phone, api_id, api_hash)
 
