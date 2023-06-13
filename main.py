@@ -1,11 +1,13 @@
 import asyncio
 import re
+import requests
 import pymongo
 from telethon import TelegramClient
 from telethon.errors.rpcerrorlist import PeerFloodError
 from telethon.tl.functions.messages import GetHistoryRequest
 from telethon.tl.types import InputPeerChannel
 from telethon.tl.functions.users import GetFullUserRequest
+from datetime import datetime, timedelta
 
 
 class MessageScraper:
@@ -26,6 +28,31 @@ class MessageScraper:
 
     async def __aexit__(self, exc_type, exc, tb):
         await self.client.disconnect()
+    async def get_token_price(self, contract_address):
+        api_key = '8DRCTKZCDGV5YDB2M3FCKKGWWGRBHRP8G8'
+        base_url = 'https://api.etherscan.io/api'
+
+        # Construct the API endpoint URL
+        endpoint = f"{base_url}?module=stats&action=tokensupply&contractaddress={contract_address}&apikey={api_key}"
+
+        try:
+            response = requests.get(endpoint)
+            response.raise_for_status()
+            data = response.json()
+
+            if data['status'] == '1' and 'result' in data:
+                token_supply = int(data['result'])
+
+                if token_supply != 0:
+                    token_price = 1.0 / token_supply  # Simple example: token price = 1 / token supply
+                    return token_price
+
+        except requests.exceptions.RequestException as err:
+            print(f"Request error: {err}")
+        except ValueError as err:
+            print(f"Response content error: {err}")
+
+        return None
 
     async def scrape_messages(self, max_iterations=10):
         entity = await self.client.get_entity(self.channel_username)
@@ -70,19 +97,47 @@ class MessageScraper:
                 caller_call_date = message.date
                 alpha_group = self.channel_username
                 coin_links, social_links = [], []
+
+                one_hour_after = caller_call_date + timedelta(hours=1)
+
+                three_hours_after = caller_call_date + timedelta(hours=3)
+                
+                six_hours_after = caller_call_date + timedelta(hours=6)
+
+                twelve_hours_after = caller_call_date + timedelta(hours=12)
+
+                one_day_after = caller_call_date + timedelta(days=1)
+
+                three_days_after = caller_call_date + timedelta(days=3)
+
+                seven_days_after = caller_call_date + timedelta(days=7)
+
                 if text:
                     # Extract the required fields using regular expressions
                     contract_address = re.findall(r"0x[a-fA-F0-9]{40}", text)
                     link_dextools = re.findall(r".*https://www\.dextools\.io.*", text)
                     link_dexscreener = re.findall(r".*https://www\.dexscreener\.com.*", text)
                     link_coinmarketcap = re.findall(r".*https://www\.coinmarketcap\.com.*", text)
-                    link_twitter = re.findall(r".*https://www\.twitter\.com.*", text)
+                    link_coinmarketcap = re.findall(r".*https://www\.twitter\.com.*", text)
                     link_facebook = re.findall(r".*https://www\.facebook\.com.*", text)
+                    link_twitter = re.findall(r".*https://www\.twitter\.com.*", text)
 
                     # Add the extracted links to the appropriate list
-                    if link_twitter or link_facebook or contract_address or link_dextools or link_dexscreener or link_coinmarketcap:
+                    if link_dextools or link_dexscreener or link_coinmarketcap or link_coinmarketcap or link_facebook:
+                        # price = await self.get_contract_price(contract_address)
+                        # print(f"Contract Address: {contract_address}, Price: {price}")
                         coin_links.extend(contract_address + link_dextools + link_dexscreener + link_coinmarketcap)
                         social_links.extend(link_twitter + link_facebook)
+                        call_time_deltas = [
+                                                {"$date": one_hour_after},
+                                                {"$date": three_hours_after},
+                                                {"$date": six_hours_after},
+                                                {"$date": twelve_hours_after},
+                                                {"$date": one_day_after},
+                                                {"$date": three_days_after},
+                                                {"$date": seven_days_after}
+                                            ]
+                        token_price = await self.get_token_price(contract_address[0])
                         document = document_schema.copy()
                         document["telegram_id"] = user_id
                         document["user_name"] = sender_username
@@ -92,6 +147,9 @@ class MessageScraper:
                         document["raw_chat"] = text
                         document["coin_links"] = coin_links
                         document["social_links"] = social_links
+                        document["call_time_deltas"] = call_time_deltas
+                        document["token_price"] = token_price
+                        document["contract_address"] = contract_address
 
                         # Insert the document into MongoDB
                         result = db.insert_one(document)
@@ -113,6 +171,9 @@ document_schema = {
     "alpha_group": "",
     "caller_chat_id": "",
     "caller_call_date": "",
+    "token_price": "",
+    "call_time_deltas": [],
+    "contract_address": "",
     "raw_chat": "",
     "coin_links": [],
     "social_links": []
